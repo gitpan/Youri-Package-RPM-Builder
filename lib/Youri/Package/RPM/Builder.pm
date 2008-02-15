@@ -1,4 +1,4 @@
-# $Id: Builder.pm 1914 2007-11-17 16:02:47Z guillomovitch $
+# $Id: Builder.pm 1938 2008-02-15 21:44:18Z guillomovitch $
 
 package Youri::Package::RPM::Builder;
 
@@ -22,7 +22,7 @@ use Carp;
 use POSIX qw(setlocale LC_ALL);
 use RPM4;
 use String::ShellQuote;
-use version; our $VERSION = qv('0.1.1');
+use version; our $VERSION = qv('0.1.2');
 
 # we rely on parsing rpm errors strings, so we have to ensure locale neutrality
 setlocale( LC_ALL, "C" );
@@ -198,9 +198,10 @@ sub build {
         }
     }
 
-    my $command = "rpm";
-    $command .= " --define '_topdir $self->{_topdir}'";
-    $command .= " --define '_sourcedir $self->{_sourcedir}'";
+    my $command = 
+        "rpmbuild" .
+        " --define '_topdir $self->{_topdir}'" .
+        " --define '_sourcedir $self->{_sourcedir}'";
 
     my @dirs = qw/builddir/;
     if ($options{build_source} && $options{build_binaries}) {
