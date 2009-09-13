@@ -1,4 +1,4 @@
-# $Id: Builder.pm 1938 2008-02-15 21:44:18Z guillomovitch $
+# $Id: Builder.pm 2152 2009-09-07 21:59:16Z guillomovitch $
 
 package Youri::Package::RPM::Builder;
 
@@ -18,11 +18,13 @@ This module builds rpm packages.
 =cut
 
 use strict;
+use warnings;
+
 use Carp;
 use POSIX qw(setlocale LC_ALL);
 use RPM4;
 use String::ShellQuote;
-use version; our $VERSION = qv('0.1.2');
+use version; our $VERSION = qv('0.2.0');
 
 # we rely on parsing rpm errors strings, so we have to ensure locale neutrality
 setlocale( LC_ALL, "C" );
@@ -144,17 +146,13 @@ Available options:
 
 =over
 
-=item rpm_options $options
+=item options $options
 
 rpm build options.
 
-=item build_source true/false
+=item stage $stage
 
-build source package (default: true).
-
-=item build_binaries true/false
-
-build binary packages (default: true).
+rpm build stage, among the following values: a, b, p, c, i, l or s (default: a).
 
 =back
 
@@ -164,18 +162,31 @@ sub build {
     my ($self, $spec_file, %options) = @_;
     croak "Not a class method" unless ref $self;
 
-    $options{build_binaries}  = 1  unless defined $options{build_binaries};
-    $options{build_source}    = 1  unless defined $options{build_source};
-    $options{rpm_options}     = "" unless defined $options{rpm_options};
+    if (defined $options{stage}) {
+        croak "invalid stage value $options{stage}"
+            unless $options{stage} =~ /^[abpcils]$/;
+    } else {
+        $options{stage} = 'a';
+    }
+    if (defined $options{rpm_options}) {
+        carp "deprecated rpm_options used";
+    }
 
-    my $spec = RPM4::Spec->new($spec_file, force => 1)
-        or croak "Unable to parse spec $spec_file\n";
-    my $header = $spec->srcheader();
+    my $spec;
+    
+    if (
+        $self->{_build_requires_callback} or
+        $self->{_build_results_callback}
+    ) {
+        $spec = RPM4::Spec->new($spec_file, force => 1)
+            or croak "Unable to parse spec $spec_file\n";
+    }
 
     if ($self->{_build_requires_callback}) {
         print "managing build dependencies\n"
             if $self->{_verbose};
 
+        my $header = $spec->srcheader();
         my $db = RPM4::Transaction->new();
         $db->transadd($header, "", 0);
         $db->transcheck();
@@ -199,22 +210,19 @@ sub build {
     }
 
     my $command = 
-        "rpmbuild" .
+        "rpmbuild -b$options{stage}" .
         " --define '_topdir $self->{_topdir}'" .
-        " --define '_sourcedir $self->{_sourcedir}'";
-
-    my @dirs = qw/builddir/;
-    if ($options{build_source} && $options{build_binaries}) {
-        $command .= " -ba $options{rpm_options} $spec_file";
-        push(@dirs, qw/rpmdir srcrpmdir/);
-    } elsif ($options{build_binaries}) {
-        $command .= " -bb $options{rpm_options} $spec_file";
-        push(@dirs, qw/rpmdir/);
-    } elsif ($options{build_source}) {
-        $command .= " -bs $options{rpm_options} --nodeps $spec_file";
-        push(@dirs, qw/srcrpmdir/);
-    }
+        " --define '_sourcedir $self->{_sourcedir}'" .
+        ($options{options}     ? " $options{options}"     : '') .
+        ($options{rpm_options} ? " $options{rpm_options}" : '') .
+        " $spec_file";
     $command .= " >/dev/null 2>&1" unless $self->{_verbose} > 1;
+
+    my @dirs = (
+        'builddir',
+        ($options{stage} eq 'b' ? () : 'srcrpmdir'),
+        ($options{stage} eq 's' ? () : 'rpmdir')
+    );
 
     # check needed directories exist
     foreach my $dir (map { RPM4::expand("\%_$_") } @dirs) {
